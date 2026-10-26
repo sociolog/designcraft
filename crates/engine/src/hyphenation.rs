@@ -1,9 +1,10 @@
 //! Hyphenation pattern files installed by the user: LibreOffice/Hyphen `hyph_<locale>.dic` files
-//! (`hyph_sr_RS.dic`, `hyph_sh_RS.dic`, `hyph_de_DE.dic`) in a folder, read once at start-up.
-//! Their patterns come before the bundled ones for text in that language
+//! (`hyph_sr_RS.dic`, `hyph_sh_RS.dic`, `hyph_de_DE.dic`) in a folder or its subfolders (one per
+//! locale, as InDesign's Hunspell folder keeps them), read once at start-up. Their patterns come
+//! before the bundled ones for text in that language
 //! (see [`designcraft_compose::hyphen::install_patterns`]).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use designcraft_compose::hyphen;
 
@@ -18,19 +19,32 @@ fn locale_of(name: &str) -> Option<&str> {
     (!locale.is_empty()).then_some(locale)
 }
 
-/// Install the `hyph_*.dic` files in `dir`, in name order. A missing folder installs nothing.
-/// Returns one line per file for the log: what was installed, or why not.
-pub fn install_dir(dir: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut files: Vec<(String, std::path::PathBuf)> = entries
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let name = e.file_name().into_string().ok()?;
-            locale_of(&name)?;
-            Some((name, e.path()))
-        })
-        .collect();
+/// The files in `dir` and in its subfolders (one level), by name then path. A missing folder has
+/// none. Names that aren't UTF-8 are left out.
+pub(crate) fn dictionary_files(dir: &Path) -> Vec<(String, PathBuf)> {
+    let list = |d: &Path| -> Vec<(String, PathBuf, bool)> {
+        let Ok(entries) = std::fs::read_dir(d) else { return Vec::new() };
+        entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| Some((e.file_name().into_string().ok()?, e.path(), e.file_type().is_ok_and(|t| t.is_dir()))))
+            .collect()
+    };
+    let mut files = Vec::new();
+    for (name, path, is_dir) in list(dir) {
+        if is_dir {
+            files.extend(list(&path).into_iter().filter(|f| !f.2).map(|(n, p, _)| (n, p)));
+        } else {
+            files.push((name, path));
+        }
+    }
     files.sort();
+    files
+}
+
+/// Install the `hyph_*.dic` files in `dir` and its subfolders, in name order. A missing folder
+/// installs nothing. Returns one line per file for the log: what was installed, or why not.
+pub fn install_dir(dir: &Path) -> Vec<String> {
+    let mut files: Vec<(String, PathBuf)> = dictionary_files(dir).into_iter().filter(|(name, _)| locale_of(name).is_some()).collect();
     let mut report = Vec::new();
     if files.len() > MAX_FILES {
         report.push(format!("hyphenation: only the first {MAX_FILES} of {} pattern files are read", files.len()));
@@ -76,7 +90,9 @@ mod tests {
     fn installs_the_folder() {
         let dir = tempfile::tempdir().unwrap();
         // A language no other test installs or hyphenates: installing is process-wide.
-        std::fs::write(dir.path().join("hyph_tpi.dic"), "UTF-8\nLEFTHYPHENMIN 2\n1pa\n1ta\n").unwrap();
+        // A locale folder, as InDesign's Hunspell folder has them.
+        std::fs::create_dir(dir.path().join("tpi")).unwrap();
+        std::fs::write(dir.path().join("tpi/hyph_tpi.dic"), "UTF-8\nLEFTHYPHENMIN 2\n1pa\n1ta\n").unwrap();
         std::fs::write(dir.path().join("hyph_tpi_PG.dic"), "ISO8859-1\n1pa\n").unwrap();
         std::fs::write(dir.path().join("readme.txt"), "not a pattern file").unwrap();
         let report = install_dir(dir.path());

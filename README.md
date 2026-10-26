@@ -161,9 +161,10 @@ The logger is `apps/designcraft/src/logging.rs`; the web build logs to the brows
 ### Hyphenation patterns
 
 LibreOffice/Hyphen pattern files (`hyph_<locale>.dic`, UTF-8, such as `hyph_sr_RS.dic` or
-`hyph_de_DE.dic`) in a `hyphenation` folder of the settings directory (Linux
-`~/.config/designcraft/hyphenation/`; macOS `~/Library/Application Support/DesignCraft/hyphenation/`;
-Windows `%APPDATA%\DesignCraft\hyphenation\`) are read at start-up. Their patterns come before
+`hyph_de_DE.dic`) in a `dictionaries` folder of the settings directory, or in its subfolders
+(one per locale, as InDesign's Hunspell folder keeps them: copy `sr_RS/` in as it is) (Linux
+`~/.config/designcraft/dictionaries/`; macOS `~/Library/Application Support/DesignCraft/dictionaries/`;
+Windows `%APPDATA%\DesignCraft\dictionaries\`) are read at start-up. Their patterns come before
 the bundled ones for text in that language; words their alphabet doesn't cover (the other script)
 still use the bundled patterns. The log lists each file read and how many patterns it gave.
 

@@ -758,9 +758,13 @@ mod tests {
         assert_eq!(h("љубављу"), "љу-ба-вљу");
         assert_eq!(h("odgovornošću"), "od-go-vor-no-šću");
         // Both scripts break at the same letters.
-        for (lat, cyr) in [("džungla", "џунгла"), ("njegovanje", "његовање"), ("đačkoj", "ђачкој"), ("Srbije", "Србије")] {
+        for (lat, cyr) in [("džungla", "џунгла"), ("njegovanje", "његовање"), ("đačkoj", "ђачкој"), ("Srbije", "Србије")]
+        {
             let (l, c) = (h(lat), h(cyr));
-            assert_eq!(serbian_cyrillic(&l.to_lowercase().replace('-', "").chars().collect::<Vec<_>>()).map(|x| x.0.iter().collect::<String>()), Some(cyr.to_lowercase()));
+            assert_eq!(
+                serbian_cyrillic(&l.to_lowercase().replace('-', "").chars().collect::<Vec<_>>()).map(|x| x.0.iter().collect::<String>()),
+                Some(cyr.to_lowercase())
+            );
             assert_eq!(l.matches('-').count(), c.matches('-').count(), "{l} / {c}");
         }
         assert_eq!(h("xerox"), "xerox", "a letter outside the alphabet: no breaks");
