@@ -13,6 +13,14 @@
 //! despite the filename, these are the reformed 2006 spelling patterns. Only the two 2006 reform
 //! names and German locale codes without a reform year or with 2006 use this set. Traditional,
 //! 1901 and unknown German variants have no automatic hyphenation; no old-spelling set is bundled.
+//! Serbian is `hyph-sh-cyrl.tex` 2.02 from hyph-utf8 (Dejan Muhamedagić), LPPL 1 or later; the
+//! patterns are for Cyrillic, so Serbian words in Latin script are hyphenated through their
+//! Cyrillic spelling ([`serbian_cyrillic`]).
+//!
+//! Pattern files can also be **installed** at run time ([`install_patterns`]): a
+//! LibreOffice/Hyphen `hyph_xx_XX.dic` for a language comes before the bundled patterns, which
+//! still cover the words its alphabet doesn't (a Latin-script set and a Cyrillic one can be
+//! installed for the same language).
 //!
 //! English lookup order for each word:
 //! 1. the **dictionary** ([`Dictionary::en_us`]) — the public-domain Moby Hyphenator II word list
@@ -28,7 +36,7 @@ pub mod dict;
 pub mod patgen;
 pub mod patterns;
 
-use std::sync::OnceLock;
+use std::sync::{OnceLock, PoisonError, RwLock};
 
 pub use dict::Dictionary;
 pub use patterns::Patterns;
@@ -80,17 +88,18 @@ impl Default for Limits {
 pub enum Lang {
     English,
     Patterns(hypher::Lang),
+    /// Pattern files installed for a language ([`install_patterns`]), by index.
+    Installed(u16),
 }
 
 impl Lang {
     /// The hyphenator for a language name or locale code (see [`designcraft_doc::language_tag`]).
-    /// None when the language has no bundled hyphenation.
+    /// None when the language has neither installed nor bundled hyphenation.
     pub fn for_language(language: &str) -> Option<Lang> {
         if language.starts_with("English") {
             return Some(Lang::English);
         }
-        let tag = designcraft_doc::language_tag(language)?;
-        let sub = designcraft_doc::language_subtag(tag);
+        let sub = pattern_language(language)?;
         // language_tag deliberately drops spelling variants for shaping and quotes. Hyphenation
         // must retain that distinction: the 2006 patterns are wrong for traditional ck/st breaks.
         if sub == "de" && !german_2006_language(language) {
@@ -99,11 +108,11 @@ impl Lang {
         if sub == "en" {
             return Some(Lang::English);
         }
-        let b = sub.as_bytes();
-        if b.len() != 2 {
-            return None;
+        let installed = INSTALLED.read().unwrap_or_else(PoisonError::into_inner);
+        if let Some(i) = installed.iter().position(|l| l.sub == sub) {
+            return u16::try_from(i).ok().map(Lang::Installed);
         }
-        hypher::Lang::from_iso([b[0], b[1]]).map(Lang::Patterns)
+        bundled(sub).map(Lang::Patterns)
     }
 }
 
@@ -114,6 +123,128 @@ fn german_2006_language(language: &str) -> bool {
     let normalized = language.strip_prefix("$ID/").unwrap_or(language).to_lowercase();
     let words: Vec<&str> = normalized.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
     matches!(words.as_slice(), ["german", "2006", "reform"] | ["german", "swiss", "2006", "reform"] | ["de"] | ["de", _] | ["de", _, "2006"])
+}
+
+/// The language subtag patterns are kept under: `sh` (Serbo-Croatian, the code Hunspell's Serbian
+/// Latin files use) is Serbian.
+fn pattern_language(language: &str) -> Option<&'static str> {
+    let sub = designcraft_doc::language_subtag(designcraft_doc::language_tag(language)?);
+    Some(if sub == "sh" { "sr" } else { sub })
+}
+
+/// The patterns compiled into `hypher` for a language subtag.
+fn bundled(sub: &str) -> Option<hypher::Lang> {
+    match *sub.as_bytes() {
+        [a, b] => hypher::Lang::from_iso([a, b]),
+        _ => None,
+    }
+}
+
+/// Pattern sets installed for one language.
+struct Installed {
+    sub: &'static str,
+    sets: Vec<Patterns>,
+}
+
+static INSTALLED: RwLock<Vec<Installed>> = RwLock::new(Vec::new());
+
+/// At most this many installed pattern files per language, and languages.
+const MAX_SETS: usize = 8;
+const MAX_LANGUAGES: usize = 256;
+
+/// Install a LibreOffice/Hyphen pattern file (see [`Patterns::parse_hyphen_dic`]) for `language`,
+/// a locale code such as `sr_RS` (from the file name `hyph_sr_RS.dic`) or a language name. Its
+/// patterns then come first for text in that language. Install before composing: hyphenated
+/// words are cached. Returns how many patterns were read and how many skipped.
+pub fn install_patterns(language: &str, text: &str) -> Result<(usize, usize), String> {
+    let sub = pattern_language(language).ok_or_else(|| format!("{language}: not a language"))?;
+    let (pats, skipped) = Patterns::parse_hyphen_dic(text).ok_or_else(|| format!("{language}: not a UTF-8 pattern file"))?;
+    if pats.is_empty() {
+        return Err(format!("{language}: no patterns"));
+    }
+    let n = pats.len();
+    let mut installed = INSTALLED.write().unwrap_or_else(PoisonError::into_inner);
+    let i = match installed.iter().position(|l| l.sub == sub) {
+        Some(i) => i,
+        None if installed.len() < MAX_LANGUAGES => {
+            installed.push(Installed { sub, sets: Vec::new() });
+            installed.len() - 1
+        }
+        None => return Err(format!("{language}: too many languages installed")),
+    };
+    let sets = &mut installed.get_mut(i).ok_or_else(|| format!("{language}: not installed"))?.sets;
+    if sets.len() >= MAX_SETS {
+        return Err(format!("{language}: too many pattern files"));
+    }
+    sets.push(pats);
+    Ok((n, skipped))
+}
+
+/// Break points from the first pattern set installed under `i` whose alphabet covers `core`.
+fn installed_points(i: u16, core: &[char]) -> Option<Vec<usize>> {
+    let installed = INSTALLED.read().unwrap_or_else(PoisonError::into_inner);
+    installed.get(usize::from(i))?.sets.iter().find_map(|p| p.points(core))
+}
+
+/// The bundled patterns behind installed language `i`.
+fn installed_bundled(i: u16) -> Option<hypher::Lang> {
+    let installed = INSTALLED.read().unwrap_or_else(PoisonError::into_inner);
+    bundled(installed.get(usize::from(i))?.sub)
+}
+
+/// A lowercase Serbian Latin word in Cyrillic, letter for letter (`lj`, `nj`, `dž` are one
+/// letter each: љ, њ, џ), with the Latin index each Cyrillic letter starts at. None when the word
+/// has a letter outside the Serbian Latin alphabet. Words where such a pair is two letters
+/// (`injekcija`, `nadživeti`) can't be told apart, so they break around the pair, not inside it.
+fn serbian_cyrillic(word: &[char]) -> Option<(Vec<char>, Vec<usize>)> {
+    let mut out = Vec::with_capacity(word.len());
+    let mut at = Vec::with_capacity(word.len());
+    let mut i = 0;
+    while let Some(&c) = word.get(i) {
+        let next = word.get(i + 1).copied();
+        let (cyr, len) = match (c, next) {
+            ('l', Some('j')) => ('љ', 2),
+            ('n', Some('j')) => ('њ', 2),
+            ('d', Some('ž')) => ('џ', 2),
+            _ => (
+                match c {
+                    'a' => 'а',
+                    'b' => 'б',
+                    'c' => 'ц',
+                    'č' => 'ч',
+                    'ć' => 'ћ',
+                    'd' => 'д',
+                    'đ' => 'ђ',
+                    'e' => 'е',
+                    'f' => 'ф',
+                    'g' => 'г',
+                    'h' => 'х',
+                    'i' => 'и',
+                    'j' => 'ј',
+                    'k' => 'к',
+                    'l' => 'л',
+                    'm' => 'м',
+                    'n' => 'н',
+                    'o' => 'о',
+                    'p' => 'п',
+                    'r' => 'р',
+                    's' => 'с',
+                    'š' => 'ш',
+                    't' => 'т',
+                    'u' => 'у',
+                    'v' => 'в',
+                    'z' => 'з',
+                    'ž' => 'ж',
+                    _ => return None,
+                },
+                1,
+            ),
+        };
+        out.push(cyr);
+        at.push(i);
+        i += len;
+    }
+    Some((out, at))
 }
 
 /// Where a word's break points came from.
@@ -139,6 +270,18 @@ fn core_breaks(core: &[char], lang: Lang) -> (Vec<usize>, Source) {
     if n < 2 {
         return (vec![], Source::None);
     }
+    let lang = match lang {
+        Lang::Installed(i) => {
+            if let Some(p) = installed_points(i, core) {
+                return (p, Source::Patterns);
+            }
+            match installed_bundled(i) {
+                Some(l) => Lang::Patterns(l),
+                None => return (vec![], Source::None),
+            }
+        }
+        _ => lang,
+    };
     if let Lang::Patterns(l) = lang {
         if let Some(ap) = core.iter().rposition(|&c| c == '\'') {
             // An elision (French "l'", Italian "dell'"): the word after the apostrophe hyphenates,
@@ -148,6 +291,12 @@ fn core_breaks(core: &[char], lang: Lang) -> (Vec<usize>, Source) {
             }
             let (pts, src) = if ap + 1 < n { core_breaks(&core[ap + 1..], lang) } else { (vec![], Source::None) };
             return (pts.into_iter().map(|p| p + ap + 1).collect(), src);
+        }
+        // Serbian Latin through its Cyrillic spelling, the script of the bundled patterns.
+        if l == hypher::Lang::Serbian && core.iter().any(|c| c.is_ascii_alphabetic() || "čćđšž".contains(*c)) {
+            let Some((cyr, at)) = serbian_cyrillic(core) else { return (vec![], Source::None) };
+            let (pts, src) = core_breaks(&cyr, lang);
+            return (pts.into_iter().filter_map(|p| at.get(p).copied()).collect(), src);
         }
         let s: String = core.iter().collect();
         let mut out = Vec::new();
@@ -586,6 +735,63 @@ mod tests {
         assert_eq!(marked("Repubblica", it), "Re-pub-bli-ca");
         assert_eq!(marked("impaginazione", it), "im-pa-gi-na-zio-ne");
         assert_eq!(marked("dell'impaginazione", it), "dell'im-pa-gi-na-zio-ne", "after an elision");
+    }
+
+    #[test]
+    fn serbian_uses_the_hyph_sh_patterns_in_both_scripts() {
+        let sr = Lang::for_language("Serbian: Cyrillic").unwrap();
+        for name in ["Serbian", "Serbian: Latin", "sr", "sr_RS", "sh_RS", "sr-Latn"] {
+            assert_eq!(Lang::for_language(name), Some(sr), "{name}");
+        }
+        let h = |w: &str| {
+            let pts = hyphen_points_in(w, &Limits::default(), sr);
+            w.chars().enumerate().map(|(i, c)| if pts.contains(&i) { format!("-{c}") } else { c.to_string() }).collect::<String>()
+        };
+        assert_eq!(h("универзитет"), "уни-вер-зи-тет");
+        assert_eq!(h("рачунар"), "ра-чу-нар");
+        assert_eq!(h("Београду"), "Бео-гра-ду");
+        // Latin hyphenates as its Cyrillic spelling, lj, nj and dž kept whole.
+        assert_eq!(h("univerzitet"), "uni-ver-zi-tet");
+        assert_eq!(h("računar"), "ra-ču-nar");
+        assert_eq!(h("Beogradu"), "Beo-gra-du");
+        assert_eq!(h("ljubavlju"), "lju-ba-vlju", "a consonant before a sonorant goes with it");
+        assert_eq!(h("љубављу"), "љу-ба-вљу");
+        assert_eq!(h("odgovornošću"), "od-go-vor-no-šću");
+        // Both scripts break at the same letters.
+        for (lat, cyr) in [("džungla", "џунгла"), ("njegovanje", "његовање"), ("đačkoj", "ђачкој"), ("Srbije", "Србије")] {
+            let (l, c) = (h(lat), h(cyr));
+            assert_eq!(serbian_cyrillic(&l.to_lowercase().replace('-', "").chars().collect::<Vec<_>>()).map(|x| x.0.iter().collect::<String>()), Some(cyr.to_lowercase()));
+            assert_eq!(l.matches('-').count(), c.matches('-').count(), "{l} / {c}");
+        }
+        assert_eq!(h("xerox"), "xerox", "a letter outside the alphabet: no breaks");
+    }
+
+    #[test]
+    fn serbian_latin_spells_in_cyrillic() {
+        let w: Vec<char> = "džunglanja".chars().collect();
+        let (cyr, at) = serbian_cyrillic(&w).unwrap();
+        assert_eq!(cyr.iter().collect::<String>(), "џунглања");
+        assert_eq!(at, vec![0, 2, 3, 4, 5, 6, 7, 9]);
+        assert!(serbian_cyrillic(&['w']).is_none());
+    }
+
+    #[test]
+    fn installed_patterns_come_first() {
+        // A language no other test uses: installing is process-wide.
+        assert!(Lang::for_language("tlh").is_none());
+        assert!(install_patterns("tlh", "ISO8859-5\n1a\n").is_err());
+        assert!(install_patterns("tlh", "UTF-8\nLEFTHYPHENMIN 2\n").is_err(), "no patterns");
+        assert_eq!(install_patterns("tlh", "UTF-8\nLEFTHYPHENMIN 2\n1ba\n1ga\n").unwrap(), (2, 0));
+        assert_eq!(install_patterns("tlh", "UTF-8\n1бa\n").unwrap(), (1, 0));
+        let tlh = Lang::for_language("tlh").unwrap();
+        assert!(matches!(tlh, Lang::Installed(_)));
+        assert_eq!(hyphen_points_in("bagaga", &Limits::default(), tlh), vec![2, 4]);
+        // Neither set's alphabet covers the word and nothing is bundled.
+        assert!(hyphen_points_in("qqqqqq", &Limits::default(), tlh).is_empty());
+        for _ in 0..MAX_SETS {
+            let _ = install_patterns("tlh", "UTF-8\n1ba\n");
+        }
+        assert!(install_patterns("tlh", "UTF-8\n1ba\n").is_err(), "pattern files per language are capped");
     }
 
     #[test]
