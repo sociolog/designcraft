@@ -1,6 +1,6 @@
 # Localization parity
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-23 · **Change:** minor (missing translations are reported, never a failure; catalog counts remain the 2026-10-10 measurement) · **Target:** Adobe InDesign 2026 (21.6)
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-30 · **Change:** minor (Serbian hyphenation and installed pattern files; missing translations are reported, never a failure; catalog counts remain the 2026-10-10 measurement) · **Target:** Adobe InDesign 2026 (21.6)
 
 Per-language status of the DesignCraft interface and of document typesetting in each script.
 Script-specific typesetting detail: [cjk.md](cjk.md), [cjk-typography.md](cjk-typography.md),
@@ -98,3 +98,4 @@ German variants have no automatic hyphenation; their German shaping and quotes a
 | 2026-10-11 | minor | Czech (cs) added: 1,722 strings, plural categories handled |
 | 2026-10-13 | minor | Polish interface added (1,717 strings) |
 | 2026-10-22 | minor | French and Italian hyphenation (hyph-fr, hyph-it): the French row and Document languages updated |
+| 2026-10-30 | minor | Serbian hyphenation in both scripts; installed `hyph_*.dic` pattern files |

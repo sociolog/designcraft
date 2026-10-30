@@ -166,7 +166,9 @@ LibreOffice/Hyphen pattern files (`hyph_<locale>.dic`, UTF-8, such as `hyph_sr_R
 `~/.config/designcraft/dictionaries/`; macOS `~/Library/Application Support/DesignCraft/dictionaries/`;
 Windows `%APPDATA%\DesignCraft\dictionaries\`) are read at start-up. Their patterns come before
 the bundled ones for text in that language; words their alphabet doesn't cover (the other script)
-still use the bundled patterns. The log lists each file read and how many patterns it gave.
+still use the bundled patterns. English is the exception: it keeps its bundled dictionary, and a
+file for it is skipped. The log lists each file read and how many patterns it gave, and any file
+or folder that couldn't be read.
 
 ### Portable mode
 

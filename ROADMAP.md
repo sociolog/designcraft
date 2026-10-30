@@ -19,8 +19,9 @@ DesignCraft aims at full Adobe InDesign parity — and to be better: faster, ope
 - **2026-10-26** · Serbian hyphenation: Character › Language offers Serbian: Cyrillic and Serbian:
   Latin, both hyphenated by the hyph-sh-cyrl patterns (Latin text through its Cyrillic spelling, so
   lj, nj and dž stay whole). LibreOffice `hyph_<locale>.dic` pattern files in the settings folder's
-  `dictionaries/` (or a locale subfolder of it) come before the bundled patterns for their language, and patterns may now be 16
-  letters long instead of 9. No readiness percentage change.
+  `dictionaries/` (or a locale subfolder of it) come before the bundled patterns for their language
+  (except English, which keeps its dictionary), and patterns may now be 16 letters long instead of
+  9. No readiness percentage change.
 - **2026-10-25** · The application bar uses craft-window's shared title-bar code. A drag that
   starts on a floating panel over the bar moves the panel, not the window, and in full screen the
   bar no longer zooms or moves the window. No readiness percentage change.
