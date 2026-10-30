@@ -174,11 +174,12 @@ or folder that couldn't be read.
 
 Hunspell spelling dictionaries (`<locale>.aff` beside `<locale>.dic`, UTF-8, such as
 `sr_RS.aff` + `sr_RS.dic`) in the same folders spell-check text in their language (Edit ›
-Spelling, Dynamic Spelling); English without one uses the bundled list. A dictionary is read the
-first time text in its language is checked. With two for one language, as Serbian has for its
-Cyrillic and Latin scripts, each word is checked by the one in its script. Check Spelling gives
-suggestions from installed dictionaries for the first 10 misspelled words, as each takes a few
-hundred milliseconds. Dictionaries are read by [spellbook](https://github.com/helix-editor/spellbook).
+Spelling, Dynamic Spelling); English without a readable one uses the bundled list. A dictionary
+is read the first time text in its language is checked. With two dictionaries for one language, as Serbian
+has for its Cyrillic and Latin scripts, each word is checked by the one in its script. Check
+Spelling gives suggestions from installed dictionaries for the first 10 misspelled words, as
+each takes a few hundred milliseconds. Dictionaries are read by
+[spellbook](https://github.com/helix-editor/spellbook).
 
 ### Portable mode
 
